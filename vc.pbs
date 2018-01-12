@@ -1,0 +1,46 @@
+#!/bin/sh
+
+#PBS -l walltime=48:00:00
+## This tells the batch manager to limit the walltime for the job to XX hours, YY minutes and ZZ seconds
+## and use PP gb of memory.
+
+#PBS -l select=1:ncpus=16:mem=32gb
+#PBS -J 0-2
+
+## This tells the batch manager to re-run job with parameter varying from 1 to N in steps on step-size
+
+module load cufflinks
+
+SAMPLES=(CT9 CT11 CT12)
+SLOTS=16
+
+SAMPLE_NAME=${SAMPLES[$PBS_ARRAY_INDEX]}
+READ1="${SAMPLE_NAME}_1.fastq"
+READ2="${SAMPLE_NAME}_2.fastq"
+
+cp -R $WORK/ctRNAseq/${SAMPLE_NAME}.sorted.bam $TMPDIR
+cp -R $WORK/ctRNAseq/ref $TMPDIR
+
+echo $SAMPLE_NAME
+
+#hisat2 -p $SLOTS -x $TMPDIR/ref/AgamP4 --dta-cufflinks -1 $TMPDIR/reads/$READ1 -2 $TMPDIR/reads/$READ2 -S $TMPDIR/${SAMPLE_NAME}.sam
+
+#ls -lah $TMPDIR
+#pwd
+
+#echo "samtools view"
+#samtools view -Sb -o $TMPDIR/${SAMPLE_NAME}.bam $TMPDIR/${SAMPLE_NAME}.sam
+
+
+#echo "------------------- sammtools sort"
+#samtools sort -@ $SLOTS -o $TMPDIR/${SAMPLE_NAME}.sorted1.bam $TMPDIR/${SAMPLE_NAME}.bam
+#samtools sort -@ $SLOTS -T ${SAMPLE_NAME}.sorted3 $TMPDIR/${SAMPLE_NAME}.bam
+
+ls -lah $TMPDIR
+ls -lah .
+pwd
+
+echo "cufflinks"
+cufflinks -p $SLOTS -o s_${SAMPLE_NAME}_clout $TMPDIR/${SAMPLE_NAME}.sorted.bam -g $TMPDIR/ref/AgamP4_genes.gtf –-multi-read-correct
+
+ls -lah

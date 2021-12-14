@@ -1,0 +1,40 @@
+#!/usr/bin/perl
+
+sub NOTIFICATION {
+  $email = '';
+  open (NOTE, ">>$0.notice.log");
+  print NOTE "\nStatus is : $_[0]";
+  close NOTE;
+  system "mail -s 'VAP-11-30-21_17:46:13' $email < $0.notice.log";
+}
+
+#TopHAT C10_S8
+chdir("/rds/general/user/it817/ephemeral/rnaseq_ignacio");
+`mkdir -p C10_S8/tophat`;
+chdir ("C10_S8/tophat");
+
+`/rds/general/user/it817/home/anaconda3/envs/rnaseq_env/bin/tophat2 -p 8 --library-type fr-firststrand --no-coverage-search -G /rds/general/user/it817/home/rnaseq/ref_files/VectorBase-54_AgambiaePEST.gff -o ./ /rds/general/user/it817/home/rnaseq/ref_files/VectorBase-54_AgambiaePEST_Genome /rds/general/user/it817/ephemeral/reads/C10_S8_R1_001.fastq.gz /rds/general/user/it817/ephemeral/reads/C10_S8_R2_001.fastq.gz`;
+`mv accepted_hits.bam C10_S8.tophat.bam`;
+
+#VAP C10_S8
+chdir("/rds/general/user/it817/ephemeral/rnaseq_ignacio");
+`mkdir -p C10_S8/tophat`;
+chdir ("C10_S8/tophat");
+my $locale=`pwd`; chomp $locale;
+
+`mkdir -p $locale/variants`;
+chdir("$locale/variants");
+`/rds/general/user/it817/home/anaconda3/envs/rnaseq_env/bin/picard QualityScoreDistribution -INPUT ../C10_S8.tophat.bam -OUTPUT qualityscores.txt -CHART qualityscores.chart`;
+`/rds/general/user/it817/home/anaconda3/envs/rnaseq_env/bin/picard SortSam -INPUT ../C10_S8.tophat.bam -OUTPUT aln_sorted.bam -SO coordinate`;
+`/rds/general/user/it817/home/anaconda3/envs/rnaseq_env/bin/picard AddOrReplaceReadGroups -INPUT aln_sorted.bam -OUTPUT aln_sorted_add.bam -SO coordinate -RGID Label -RGLB Label -RGPL illumina -RGPU Label -RGSM Label`;
+`/rds/general/user/it817/home/anaconda3/envs/rnaseq_env/bin/picard MarkDuplicates -INPUT aln_sorted_add.bam -OUTPUT aln_sorted_mdup.bam -M aln_sorted_mdup.metrics -CREATE_INDEX true`;
+`/rds/general/user/it817/home/anaconda3/envs/rnaseq_env/bin/picard ReorderSam -INPUT aln_sorted_mdup.bam -OUTPUT aln_resorted_mdup.bam -SEQUENCE_DICTIONARY /rds/general/user/it817/home/rnaseq/ref_files/VectorBase-54_AgambiaePEST_Genome.dict -REFERENCE_SEQUENCE /rds/general/user/it817/home/rnaseq/ref_files/VectorBase-54_AgambiaePEST_Genome.fa -CREATE_INDEX TRUE`;
+my $file = `tail -n2 qualityscores.txt | head -n 1 | awk -F" " '{print \$1}'`;
+if ($file >= 59) {
+`/rds/general/user/it817/home/anaconda3/envs/rnaseq_env/bin/gatk -T SplitNCigarReads --fix_misencoded_quality_scores -R /rds/general/user/it817/home/rnaseq/ref_files/VectorBase-54_AgambiaePEST_Genome.fa -I aln_resorted_mdup.bam -o aln_sorted_split.bam -rf ReassignOneMappingQuality -RMQF 255 -RMQT 60 --filter_reads_with_N_cigar`;
+} else {
+`/rds/general/user/it817/home/anaconda3/envs/rnaseq_env/bin/gatk -T SplitNCigarReads -R /rds/general/user/it817/home/rnaseq/ref_files/VectorBase-54_AgambiaePEST_Genome.fa -I aln_resorted_mdup.bam -o aln_sorted_split.bam -rf ReassignOneMappingQuality -RMQF 255 -RMQT 60 --filter_reads_with_N_cigar`;
+}
+
+`/rds/general/user/it817/home/anaconda3/envs/rnaseq_env/bin/gatk -T HaplotypeCaller -R /rds/general/user/it817/home/rnaseq/ref_files/VectorBase-54_AgambiaePEST_Genome.fa -I aln_sorted_split.bam -o C10_S8_all.vcf`;
+`rm -rf C10_S8_snp.vcf; /rds/general/user/it817/home/anaconda3/envs/rnaseq_env/bin/gatk -T SelectVariants -selectType SNP -R /rds/general/user/it817/home/rnaseq/ref_files/VectorBase-54_AgambiaePEST_Genome.fa -selectType MNP -V C10_S8_all.vcf -o C10_S8_snp.vcf`;

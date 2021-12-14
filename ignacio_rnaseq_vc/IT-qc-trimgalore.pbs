@@ -1,0 +1,28 @@
+#!/bin/sh
+
+#PBS -l walltime=24:00:00
+#PBS -l select=1:ncpus=16:mem=62gb
+#PBS -J 0-5
+
+module load anaconda3/personal
+source activate rnaseq_env
+
+# INSTALL
+# python3
+# trimgalore
+# cutadapt
+# pigz
+
+SAMPLES=(C10_S8 E10_S1 E14_S2 E16_S3 E25_S4 E28_S5)
+
+WORKDIR="/rds/general/user/nkranjc/home/ephemeral/it_rnaseq_vc"
+READ_DIR="/rds/general/user/nkranjc/home/project_tmdata/live/rnaseq_ignacio"
+REF_DIR="/rds/general/user/it817/home/rnaseq/ref_files"
+SAMPLE_NAME=${SAMPLES[$PBS_ARRAY_INDEX]}
+READ1="${READ_DIR}/${SAMPLE_NAME}_R1_001.fastq"
+READ2="${READ_DIR}/${SAMPLE_NAME}_R2_001.fastq"
+
+cd $WORKDIR
+mkdir reads_trimmed/
+mkdir tmp
+trim_galore -j 4 -o reads_trimmed/ --fastqc --fastqc_args "-d tmp/" --paired ${READ1} ${READ2}

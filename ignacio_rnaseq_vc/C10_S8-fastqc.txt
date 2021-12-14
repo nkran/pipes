@@ -1,0 +1,29 @@
+#!/usr/bin/perl
+
+sub NOTIFICATION {
+  $email = '';
+  open (NOTE, ">>$0.notice.log");
+  print NOTE "\nStatus is : $_[0]";
+  close NOTE;
+  system "mail -s 'VAP-11-30-21_17:46:13' $email < $0.notice.log";
+}
+
+#FastQC C10_S8
+chdir("/rds/general/user/it817/ephemeral/rnaseq_ignacio");
+`mkdir -p C10_S8/fastqc`;
+chdir ("C10_S8/fastqc");
+
+`cp /rds/general/user/it817/ephemeral/reads/C10_S8_R1_001.fastq.gz /rds/general/user/it817/ephemeral/reads/C10_S8_R2_001.fastq.gz ./`;
+`/rds/general/user/it817/home/anaconda3/envs/rnaseq_env/bin/fastqc C10_S8_R1_001.fastq.gz -d /rds/general/user/it817/ephemeral/rnaseq_ignacio/tmp`;
+
+`unzip C10_S8_R1_001_fastqc.zip`;
+`cp C10_S8_R1_001_fastqc/summary.txt C10_S8_R1_001_fastqc.txt`;
+`rm -rf C10_S8_R1_001_fastqc`;
+
+`cp /rds/general/user/it817/ephemeral/reads/C10_S8_R1_001.fastq.gz /rds/general/user/it817/ephemeral/reads/C10_S8_R2_001.fastq.gz ./`;
+`/rds/general/user/it817/home/anaconda3/envs/rnaseq_env/bin/fastqc C10_S8_R2_001.fastq.gz -d /rds/general/user/it817/ephemeral/rnaseq_ignacio/tmp`;
+
+`unzip C10_S8_R2_001_fastqc.zip`;
+`cp C10_S8_R2_001_fastqc/summary.txt C10_S8_R2_001_fastqc.txt`;
+`rm -rf C10_S8_R2_001_fastqc`;
+

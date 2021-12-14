@@ -1,0 +1,124 @@
+#!/bin/sh
+
+#PBS -l walltime=72:00:00
+#PBS -l select=1:ncpus=32:mem=124gb
+#PBS -J 0-5
+
+module load anaconda3/personal
+source activate rnaseq_env
+
+SAMPLES=(C10_S8 E10_S1 E14_S2 E16_S3 E25_S4 E28_S5)
+SLOTS=32
+
+WORKDIR="/rds/general/user/nkranjc/home/ephemeral/it_rnaseq_vc"
+READ_DIR="${WORKDIR}/reads_trimmed/"
+REF_DIR="/rds/general/user/it817/home/rnaseq/ref_files"
+SAMPLE_NAME=${SAMPLES[$PBS_ARRAY_INDEX]}
+READ1="${READ_DIR}/${SAMPLE_NAME}_R1_001.fastq"
+READ2="${READ_DIR}/${SAMPLE_NAME}_R2_001.fastq"
+
+cd $WORKDIR
+
+mkdir -p STARref
+STAR --runThreadN ${SLOTS} \
+     --runMode genomeGenerate \
+     --genomeDir STARref \
+     --genomeFastaFiles ${REF_DIR}/VectorBase-54_AgambiaePEST_Genome.fa
+
+mkdir -p 1PASS
+cd 1PASS
+STAR --runThreadN ${SLOTS} \
+     --genomeDir STARref \
+     --readFilesCommand zcat \
+     --sjdbOverhang 149 \
+     --outFileNamePrefix ${SAMPLE_NAME}. 
+     --sjdbGTFfile ${REF_DIR}/VectorBase-54_AgambiaePEST.gtf \
+     --readFilesIn $READ1 $READ2
+cd $WORKDIR
+
+mkdir -p STARref2
+STAR  --runThreadN ${SLOTS} \
+      --runMode genomeGenerate \
+      --genomeDir STARref2 \
+      --genomeFastaFiles ${REF_DIR}/VectorBase-54_AgambiaePEST_Genome.fa \
+      --sjdbFileChrStartEnd 1PASS/${SAMPLE_NAME}.SJ.out.tab
+
+mkdir -p 2PASS
+cd 2PASS
+STAR --runThreadN ${SLOTS} \
+     --genomeDir STARref2 \
+     --readFilesCommand zcat \
+     --outFileNamePrefix ${SAMPLE_NAME}.2nd. \
+     --sjdbGTFfile ${REF_DIR}/VectorBase-54_AgambiaePEST.gtf \
+     --readFilesIn $READ1 $READ2 
+cd $WORKDIR
+
+cp 2PASS/${SAMPLE_NAME}.2nd.Aligned.out.sam ./${SAMPLE_NAME}.2nd.star.sam
+
+ALIGNER="STAR"
+samtools view -bS ${SAMPLE_NAME}.2nd.Aligned.out.sam -o ${SAMPLE_NAME}.${ALIGNER}.bam
+samtools index ${SAMPLE_NAME}.${ALIGNER}.bam
+
+# VC -----------------------------------------------------------------------------------
+picard QualityScoreDistribution -INPUT ${SAMPLE_NAME}.${ALIGNER}.bam \
+                                -OUTPUT ${SAMPLE_NAME}.${ALIGNER}.qualityscores.txt \
+                                -CHART ${SAMPLE_NAME}.${ALIGNER}.qualityscores.chart
+
+picard SortSam -INPUT ${SAMPLE_NAME}.${ALIGNER}.bam \
+               -OUTPUT ${SAMPLE_NAME}.${ALIGNER}.aln_sorted.bam \
+               -SO coordinate
+
+picard AddOrReplaceReadGroups -INPUT ${SAMPLE_NAME}.${ALIGNER}.aln_sorted.bam \
+                              -OUTPUT ${SAMPLE_NAME}.${ALIGNER}.aln_sorted_add.bam \
+                              -SO coordinate \
+                              -RGID Label \
+                              -RGLB Label \
+                              -RGPL illumina \
+                              -RGPU Label \
+                              -RGSM Label
+
+picard MarkDuplicates -INPUT ${SAMPLE_NAME}.${ALIGNER}.aln_sorted_add.bam \
+                      -OUTPUT ${SAMPLE_NAME}.${ALIGNER}.aln_sorted_mdup.bam \
+                      -M ${SAMPLE_NAME}.${ALIGNER}.aln_sorted_mdup.metrics \
+                      -CREATE_INDEX true
+
+picard ReorderSam -INPUT ${SAMPLE_NAME}.${ALIGNER}.aln_sorted_mdup.bam \
+                  -OUTPUT ${SAMPLE_NAME}.${ALIGNER}.aln_resorted_mdup.bam \
+                  -SEQUENCE_DICTIONARY ${REF_DIR}/VectorBase-54_AgambiaePEST_Genome.dict \
+                  -REFERENCE_SEQUENCE ${REF_DIR}/VectorBase-54_AgambiaePEST_Genome.fa \
+                  -CREATE_INDEX TRUE
+
+Q=`tail -n2 ${SAMPLE_NAME}.${ALIGNER}.qualityscores.txt | head -n 1 | awk -F" " '{print \$1}'`
+
+if [[ $Q -gt 59 ]]
+then
+       gatk -T SplitNCigarReads \
+       --fix_misencoded_quality_scores \
+       -R ${REF_DIR}/VectorBase-54_AgambiaePEST_Genome.fa \
+       -I ${SAMPLE_NAME}.${ALIGNER}.aln_resorted_mdup.bam \
+       -o ${SAMPLE_NAME}.${ALIGNER}.aln_sorted_split.bam \
+       -rf ReassignOneMappingQuality -RMQF 255 -RMQT 60 \
+       --filter_reads_with_N_cigar
+else
+       gatk -T SplitNCigarReads \
+       -R ${REF_DIR}/VectorBase-54_AgambiaePEST_Genome.fa \
+       -I ${SAMPLE_NAME}.${ALIGNER}.aln_resorted_mdup.bam \
+       -o ${SAMPLE_NAME}.${ALIGNER}.aln_sorted_split.bam \
+       -rf ReassignOneMappingQuality \
+       -RMQF 255 \
+       -RMQT 60 \
+       --filter_reads_with_N_cigar
+fi
+
+gatk -T HaplotypeCaller \
+     -nt ${SLOTS} \
+     -R ${REF_DIR}/VectorBase-54_AgambiaePEST_Genome.fa \
+     -I ${SAMPLE_NAME}.${ALIGNER}.aln_sorted_split.bam \
+     -o ${SAMPLE_NAME}.${ALIGNER}.all.vcf
+
+gatk -T SelectVariants \
+     -selectType SNP \
+     -R ${REF_DIR}/VectorBase-54_AgambiaePEST_Genome.fa \
+     -selectType MNP \
+     -V ${SAMPLE_NAME}.${ALIGNER}.all.vcf \
+     -o ${SAMPLE_NAME}.${ALIGNER}.snp.vcf

@@ -1,0 +1,17 @@
+name: rnaseq_env
+channels:
+  - defaults
+  - bioconda
+  - conda-forge
+  - imperial-college-research-computing
+dependencies:
+  - bowtie2=2.3.5.1=py27he513fc3_0
+  - bwa=0.7.17=h5bf99c6_8
+  - cufflinks=2.2.1=py27_2
+  - fastqc=0.11.9=hdfd78af_1
+  - gatk=3.8=py27_0
+  - hisat2=2.1.0=py27hc9558a2_4
+  - picard=2.26.4=hdfd78af_0
+  - samtools=1.9=h10a08f8_12
+  - star=2.5.2b=0
+  - tophat=2.1.1=py27_0

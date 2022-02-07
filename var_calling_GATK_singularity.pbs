@@ -1,0 +1,62 @@
+#!/bin/sh
+
+#PBS -l walltime=72:00:00
+#PBS -l select=1:ncpus=32:mem=124gb
+#PBS -J 0-2
+#PBS -N VarCall-singularity
+#PBS -j oe
+
+module load samtools/1.3.1
+
+# --- CHANGE ----
+SAMPLES=(SRR3137747 SRR5417054 SRR5417055)
+SLOTS=32
+MEMGB=120
+
+WORKDIR="/rds/general/user/nkranjc/projects/tmstorage/ephemeral/ara_vc"
+REFERENCE="01_Ref/VectorBase-54_AgambiaePEST_Genome.fasta"
+SAMPLE_NAME=${SAMPLES[$PBS_ARRAY_INDEX]}
+# ---------------
+
+cd $WORKDIR
+
+mkdir -p 00_Logs
+mkdir -p 05_Processed
+mkdir -p 06_gVCFs
+
+echo "Mark duplicates"
+taskset -c 1-40 singularity exec -B $WORKDIR gatk.sif gatk --java-options "-Xmx${MEMGB}G -XX:ConcGCThreads=${SLOTS}" MarkDuplicates \
+     -I 04_Mapped/${SAMPLE_NAME}.bam \
+     -O 05_Processed/${SAMPLE_NAME}.dedup.bam \
+     --TMP_DIR tmp/ \
+     -M 00_Logs/${SAMPLE_NAME}.marked_dup_metrics.txt
+
+echo "Sort"
+samtools sort -@${SLOTS} -o 05_Processed/${SAMPLE_NAME}.dedup.sorted.bam 05_Processed/${SAMPLE_NAME}.dedup.bam
+
+#  -- Update RG -------------------------------------------------------------------------------------------------------
+echo "AddOrReplaceReadGroups"
+taskset -c 1-40 singularity exec -B $WORKDIR gatk.sif gatk --java-options "-Xmx${MEMGB}G -XX:ConcGCThreads=${SLOTS}" AddOrReplaceReadGroups \
+                             -I 05_Processed/${SAMPLE_NAME}.dedup.sorted.bam \
+                             -O 05_Processed/${SAMPLE_NAME}.dedup.sorted.rg.bam \
+                             --TMP_DIR tmp/ \
+                             --RGID ARA_VC_${SAMPLE} \
+                             --RGLB LIB_${SAMPLE} \
+                             --RGPL ILLUMINA_${SAMPLE} \
+                             --RGPU UNIT_${SAMPLE} \
+                             --RGSM ARA_VC_${SAMPLE} &> 00_Logs/log_${SAMPLE_NAME}_RG.txt
+
+samtools index 05_Processed/${SAMPLE_NAME}.dedup.sorted.rg.bam
+
+echo "Calculating statistics"
+samtools flagstat 05_Processed/${SAMPLE_NAME}.dedup.sorted.rg.bam > 00_Logs/${SAMPLE_NAME}.realigned.report.txt
+
+#  -- HaplotypeCaller .------------------------------------------------------------------------------------------------
+echo "Haplotype caller"
+
+taskset -c 1-40 singularity exec -B $WORKDIR gatk.sif gatk --java-options "-Xmx${MEMGB}G -XX:ConcGCThreads=${SLOTS}" HaplotypeCaller \
+     -R $REFERENCE \
+     -I 05_Processed/${SAMPLE_NAME}.dedup.sorted.rg.bam \
+     --tmp-dir tmp/ \
+     --ERC GVCF \
+     -O 06_gVCFs/$SAMPLE_NAME.raw.snps.indels.g.vcf |& tee 00_Logs/log_${SAMPLE_NAME}_HC.txt
